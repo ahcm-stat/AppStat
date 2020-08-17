@@ -2,7 +2,7 @@
 
 # Script title: app.
 # Date: 2020-08-17.
-# Tasks: a) make panels for filtering variables and display graphics;
+# Tasks: make panels for filtering variables and display graphics;
 # Input: sqlite database "database.db".
 # Output: shiny app.
 # Aims: implementing an app for data summary of "database.db".
