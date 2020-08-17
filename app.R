@@ -1,22 +1,22 @@
-# WARNING: set the file R_root as your working directory.
-
 # DESCRIPTION ------------------------------------------------------------------
 
 # Script title: app.
-# Date: 2020-08-09.
-# Tasks: a) make panels for filtering variables;
-# Input: sqlite database "database_v2.db".
-# Output: tables and graphs.
-# Aims: implementing an app for data summary.
+# Date: 2020-08-17.
+# Tasks: a) make panels for filtering variables and display graphics;
+# Input: sqlite database "database.db".
+# Output: shiny app.
+# Aims: implementing an app for data summary of "database.db".
 
 
-# PACKAGES----------------------------------------------------------------------
+# PACKAGES ---------------------------------------------------------------------
 
 load_lib <- c(
     "shiny",
     "shinyWidgets",
-    "shinydashboard",
-    "RSQLite"
+    #"shinydashboard",
+    "RSQLite",
+    "plyr",
+    "dplyr"
 )
 
 install_lib <- load_lib[!load_lib %in% installed.packages()]
@@ -24,92 +24,143 @@ for (lib in install_lib) install.packages(lib, dependencies = TRUE)
 sapply(load_lib, require, character = TRUE)
 
 
+# SUBROUTINES ------------------------------------------------------------------
+
+source("my_query.R")
+
+
 # DATABASE CONNECTION ----------------------------------------------------------
 
-db_path <- paste(getwd(), "databases", "database_v2.db", sep = "/")
-db_conn <- dbConnect(drv = SQLite(), dbname = db_path)
+if ("db_conn" %in% ls()) dbDisconnect(db_conn) # disconnect database.
+
+db_conn <- dbConnect(drv = SQLite(), dbname = "database.db")
 
 
-# INITIALIZATION ---------------------------------------------------------------
+# UI/SERVER --------------------------------------------------------------------
 
-# de_tipo_atendimento, de_origem, de_desfecho, descricao,
-#   "de_exame, de_analito", min_exame_analito, range_dias, genero, range_idade,
-#   id_paciente.
+ui <- fluidPage(
+    titlePanel("Filering Panel"),
 
-my_database <- "hsl_exames"
+    sidebarLayout(
+        sidebarPanel(
+            width = 5,
 
-filtered_data <- dbGetQuery(db_conn, paste("SELECT * FROM", my_database))
+            tabsetPanel(
+                type = "pills",
 
-id_set_1 <- c("de_tipo_atendimento", "de_origem", "de_desfecho", "id_paciente")
+                tabPanel(
+                    "Hosptial",
 
-selected_labels <- list()
-selected_labels[seq_len(length(id_set_1))] <- NULL
+                    pickerInput("hospital_data", "Hospital:",
+                        choices = c("HSL", "Einstein", "Fleury")
+                    ),
 
+                    pickerInput("patient_origin",
+                        "Sector of origin of patients:",
+                        choices = LETTERS[1:5],
+                        selected = NULL,
+                        multiple = TRUE,
+                        options = list(
+                            `actions-box` = TRUE,
+                            `live-search` = TRUE
+                        )
+                    )
+                ),
 
-# MAIN -------------------------------------------------------------------------
+                tabPanel(
+                    "Patients",
 
-ui <- dashboardPage(
-    dashboardHeader(title = "My test app"),
+                    pickerInput("patient_gender", "Patient genders:",
+                        choices = c("Male", "Female"),
+                        selected = c("Male", "Female"),
+                        multiple = TRUE
+                    ),
 
-    dashboardSidebar(),
+                    sliderInput("patient_age", "Age range of patients:",
+                        min = 0,
+                        max = 100,
+                        value = c(0, 100),
+                        step = 1
+                    ),
 
-    dashboardBody(
+                    sliderInput("patient_stay",
+                        "Patient's length of stay (in days):",
+                        min = 0,
+                        max = 100,
+                        value = c(0, 100),
+                        step = 1
+                    ),
 
-        fluidRow(
-            column(width = 3,
-                pickerInput(
-                    inputId = "var_id_paciente",
-                    label = "ID do paciente:",
-                    choices = var_data,
-                    options = list(`live-search` = TRUE,
-                                    `actions-box` = TRUE,
-                                    `selected-text-format` = "count > 1"),
-                    multiple = TRUE
+                    pickerInput("patient", "Patients:",
+                        choices = LETTERS[1:5],
+                        selected = NULL,
+                        multiple = TRUE,
+                        options = list(
+                            `actions-box` = TRUE,
+                            `live-search` = TRUE
+                        )
+                    )
+                ),
+
+                tabPanel(
+                    "Exams",
+
+                    pickerInput("exams", "Exams:",
+                        choices = LETTERS[1:5],
+                        selected = NULL,
+                        multiple = TRUE,
+                        options = list(
+                            `actions-box` = TRUE,
+                            `live-search` = TRUE
+                        )
+                    ),
+
+                    pickerInput("analit", "Exam analytes:",
+                        choices = LETTERS[1:5],
+                        selected = NULL,
+                        multiple = TRUE,
+                        options = list(
+                            `actions-box` = TRUE,
+                            `live-search` = TRUE
+                        )
+                    )
+                ),
+
+                tabPanel(
+                    "Grouping",
+
+                    actionButton("group_data", "Group data")
+                ),
+
+                tabPanel(
+                    "Columns",
+
+                    checkboxGroupInput("select_columns", "Select:",
+                        choices = LETTERS[1:5],
+                        inline = FALSE
+                    )
                 )
-            ),
+            )
+        ),
 
-            column(width = 1,
-                prettyToggle(
-                    inputId = "group_var_id_paciente",
-                    label_on = "Agrupar",
-                    icon_on = icon("check"),
-                    status_on = "success",
-                    label_off = "Não agrupar",
-                    icon_off = icon("remove"),
-                    status_off = "warning"
-                )
+        mainPanel(
+            width = 7,
+
+            tabsetPanel(
+                type = "pills",
+
+                tabPanel("Description"),
+
+                tabPanel("Graphics"),
+
+                tabPanel("Filtered Data")
             )
         )
     )
 )
 
-server <- function(input, output) {
-    id_labels <- lapply(id_set_1, function(i) input[[i]])
+server <- function(input, output, session) {
 
-    for (i in seq_len(length(id_labels))) {
-        direction_1 <- setdiff(id_labels[[i]], selected_labels[[i]])
-        direction_2 <- setdiff(id_labels[[i]], selected_labels[[i]])
-
-        if (length(direction_1) + length(direction_2) > 0) {
-            changed_id <- i
-            selected_labels[changed_id] <- id_labels[[changed_id]]
-            break
-        } else {
-           changed_id <- 0
-        }
-    }
-
-    if (changed_id) {
-        filtered_data <- dbGetQuery(
-            db_conn,
-            paste(
-                "SELECT *", id_set_1[changed_id], "FROM", my_database, "WHERE",
-                id_set_1[changed_id], "=", selected_labels[[changed_id]]
-            )
-        )
-    }
-
-    filtered_labels <- lapply(filtered_data, unique)
 }
 
-shinyApp(ui, server)
+shinyApp(ui = ui, server = server)
