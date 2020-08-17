@@ -39,7 +39,7 @@ db_conn <- dbConnect(drv = SQLite(), dbname = "database.db")
 # UI/SERVER --------------------------------------------------------------------
 
 ui <- fluidPage(
-    titlePanel("Filering Panel"),
+    titlePanel("Filtering Panel"),
 
     sidebarLayout(
         sidebarPanel(
@@ -55,33 +55,16 @@ ui <- fluidPage(
                         choices = c("HSL", "Einstein", "Fleury")
                     ),
 
-                    pickerInput("patient_origin",
-                        "Sector of origin of patients:",
-                        choices = LETTERS[1:5],
-                        selected = NULL,
-                        multiple = TRUE,
-                        options = list(
-                            `actions-box` = TRUE,
-                            `live-search` = TRUE
-                        )
-                    )
+                    uiOutput("out_patient_origin")
+
                 ),
 
                 tabPanel(
                     "Patients",
 
-                    pickerInput("patient_gender", "Patient genders:",
-                        choices = c("Male", "Female"),
-                        selected = c("Male", "Female"),
-                        multiple = TRUE
-                    ),
+                    uiOutput("out_patient_gender"),
 
-                    sliderInput("patient_age", "Age range of patients:",
-                        min = 0,
-                        max = 100,
-                        value = c(0, 100),
-                        step = 1
-                    ),
+                    uiOutput("out_patient_age"),
 
                     sliderInput("patient_stay",
                         "Patient's length of stay (in days):",
@@ -160,6 +143,71 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
+    tables <- reactive({
+        hospital <- switch(input$hospital_data,
+            HSL = "hsl_",
+            Einstein = "eins_",
+            Fleury = "fleury_"
+        )
+
+        exams <- dbGetQuery(
+            db_conn,
+            paste0("SELECT * FROM ", hospital, "exames")
+        )
+
+        patients <- dbGetQuery(
+            db_conn,
+            paste0("SELECT * FROM ", hospital, "pacientes")
+        )
+
+        if (hospital == "hsl_") {
+            outcomes <- dbGetQuery(
+                db_conn,
+                paste0("SELECT * FROM ", hospital, "desfechos")
+            )
+        } else {
+            outcomes <- "table not defined"
+        }
+
+        result <- list(exams = exams, patients = patients, outcomes = outcomes)
+
+        return(result)
+    })
+
+    output$out_patient_origin <- renderUI({
+        pickerInput("patient_origin",
+            "Sector of origin of patients:",
+            choices = unique(tables()$exams$de_origem),
+            multiple = TRUE,
+            options = list(
+                `actions-box` = TRUE,
+                `live-search` = TRUE
+            )
+        )
+    })
+
+    output$out_patient_gender <- renderUI({
+        pickerInput("patient_gender",
+            "Gender of patients:",
+            choices = unique(tables()$patients$ic_sexo),
+            multiple = TRUE,
+            options = list(
+                `actions-box` = TRUE,
+                `live-search` = TRUE
+            )
+        )
+    })
+
+    output$out_patient_age <- renderUI({
+        age <- 2020 - as.numeric(tables()$patients$aa_nascimento)
+        age_range <- range(age, na.rm = TRUE)
+        sliderInput("patient_age", "Age range of patients:",
+            min = age_range[1],
+            max = age_range[2],
+            value = age_range,
+            step = 1
+        )
+    })
 
 }
 
